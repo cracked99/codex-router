@@ -488,6 +488,10 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 	sequenceNumber := 0
 	fullText := ""
 
+	// Tool call tracking
+	toolCalls := make(map[int]map[string]interface{}) // index -> tool call info
+	toolCallItems := make(map[int]string)             // index -> item_id
+
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -545,7 +549,7 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 					sequenceNumber++
 				}
 
-				// Send output_item.done
+				// Send output_item.done for message
 				if sentOutputItemAdded {
 					outputItemDone := map[string]interface{}{
 						"type":            "response.output_item.done",
@@ -566,6 +570,50 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 						},
 					}
 					eventData, _ := json.Marshal(outputItemDone)
+					fmt.Fprintf(w, "event: response.output_item.done\n")
+					fmt.Fprintf(w, "data: %s\n\n", string(eventData))
+					flusher.Flush()
+					sequenceNumber++
+				}
+
+				// Finalize tool calls
+				for idx, tcInfo := range toolCalls {
+					toolCallItemID := toolCallItems[idx]
+					outputIdx := 0
+					if sentOutputItemAdded {
+						outputIdx = 1 + idx
+					}
+
+					// Send function_call_arguments.done
+					argsDoneEvent := map[string]interface{}{
+						"type":            "response.function_call_arguments.done",
+						"item_id":         toolCallItemID,
+						"output_index":    outputIdx,
+						"sequence_number": sequenceNumber,
+						"name":            tcInfo["name"],
+						"arguments":       tcInfo["arguments"],
+					}
+					eventData, _ := json.Marshal(argsDoneEvent)
+					fmt.Fprintf(w, "event: response.function_call_arguments.done\n")
+					fmt.Fprintf(w, "data: %s\n\n", string(eventData))
+					flusher.Flush()
+					sequenceNumber++
+
+					// Send output_item.done for function_call
+					toolItemDone := map[string]interface{}{
+						"type":            "response.output_item.done",
+						"output_index":    outputIdx,
+						"sequence_number": sequenceNumber,
+						"item": map[string]interface{}{
+							"id":        toolCallItemID,
+							"type":      "function_call",
+							"status":    "completed",
+							"call_id":   tcInfo["id"],
+							"name":      tcInfo["name"],
+							"arguments": tcInfo["arguments"],
+						},
+					}
+					eventData, _ = json.Marshal(toolItemDone)
 					fmt.Fprintf(w, "event: response.output_item.done\n")
 					fmt.Fprintf(w, "data: %s\n\n", string(eventData))
 					flusher.Flush()
@@ -732,6 +780,91 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 								fmt.Fprintf(w, "data: %s\n\n", string(eventData))
 								flusher.Flush()
 								sequenceNumber++
+							}
+
+							// Handle tool_calls in delta
+							if toolCallsDelta, ok := delta["tool_calls"].([]interface{}); ok {
+								for _, tc := range toolCallsDelta {
+									if tcMap, ok := tc.(map[string]interface{}); ok {
+										index := 0
+										if idx, ok := tcMap["index"].(float64); ok {
+											index = int(idx)
+										}
+
+										// Initialize tool call tracking if new
+										if _, exists := toolCalls[index]; !exists {
+											toolCallID := fmt.Sprintf("tc_%d_%d", time.Now().UnixNano(), index)
+											toolCallItemID := fmt.Sprintf("fc_%d_%d", time.Now().UnixNano(), index)
+											toolCalls[index] = map[string]interface{}{
+												"id":        toolCallID,
+												"item_id":   toolCallItemID,
+												"name":      "",
+												"arguments": "",
+											}
+											toolCallItems[index] = toolCallItemID
+
+											// Send output_item.added for function_call
+											outputIdx := len(toolCalls) - 1
+											if sentOutputItemAdded {
+												outputIdx = 1 // After the message item
+											}
+											toolItemAdded := map[string]interface{}{
+												"type":            "response.output_item.added",
+												"output_index":    outputIdx,
+												"sequence_number": sequenceNumber,
+												"item": map[string]interface{}{
+													"id":       toolCallItemID,
+													"type":     "function_call",
+													"status":   "in_progress",
+													"call_id":  toolCallID,
+													"name":     "",
+													"arguments": "",
+												},
+											}
+											eventData, _ := json.Marshal(toolItemAdded)
+											fmt.Fprintf(w, "event: response.output_item.added\n")
+											fmt.Fprintf(w, "data: %s\n\n", string(eventData))
+											flusher.Flush()
+											sequenceNumber++
+										}
+
+										tcInfo := toolCalls[index]
+										toolCallItemID := toolCallItems[index]
+										outputIdx := 0
+										if sentOutputItemAdded {
+											outputIdx = 1
+										}
+
+										// Handle tool call id
+										if id, ok := tcMap["id"].(string); ok && id != "" {
+											tcInfo["id"] = id
+										}
+
+										// Handle function name and arguments
+										if fn, ok := tcMap["function"].(map[string]interface{}); ok {
+											if name, ok := fn["name"].(string); ok && name != "" {
+												tcInfo["name"] = name
+											}
+											if args, ok := fn["arguments"].(string); ok {
+												tcInfo["arguments"] = tcInfo["arguments"].(string) + args
+
+												// Send function_call_arguments.delta
+												argsDeltaEvent := map[string]interface{}{
+													"type":            "response.function_call_arguments.delta",
+													"item_id":         toolCallItemID,
+													"output_index":    outputIdx,
+													"sequence_number": sequenceNumber,
+													"delta":           args,
+												}
+												eventData, _ := json.Marshal(argsDeltaEvent)
+												fmt.Fprintf(w, "event: response.function_call_arguments.delta\n")
+												fmt.Fprintf(w, "data: %s\n\n", string(eventData))
+												flusher.Flush()
+												sequenceNumber++
+											}
+										}
+									}
+								}
 							}
 						}
 					}
