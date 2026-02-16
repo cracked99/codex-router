@@ -361,6 +361,42 @@ func (h *ProxyHandler) transformRequest(req map[string]interface{}) map[string]i
 
 func (h *ProxyHandler) transformInputItem(item map[string]interface{}) map[string]interface{} {
 	role, _ := item["role"].(string)
+	itemType, _ := item["type"].(string)
+
+	// Handle tool call outputs (function_call_output type)
+	if itemType == "function_call_output" {
+		callID, _ := item["call_id"].(string)
+		output := ""
+		if out, ok := item["output"].(string); ok {
+			output = out
+		}
+		return map[string]interface{}{
+			"role":         "tool",
+			"tool_call_id": callID,
+			"content":      output,
+		}
+	}
+
+	// Handle function calls in input (when submitting previous tool calls)
+	if itemType == "function_call" {
+		callID, _ := item["call_id"].(string)
+		name, _ := item["name"].(string)
+		arguments, _ := item["arguments"].(string)
+		return map[string]interface{}{
+			"role": "assistant",
+			"tool_calls": []map[string]interface{}{
+				{
+					"id": callID,
+					"type": "function",
+					"function": map[string]interface{}{
+						"name":      name,
+						"arguments": arguments,
+					},
+				},
+			},
+			"content": nil,
+		}
+	}
 
 	switch role {
 	case "user", "assistant", "system":
@@ -372,10 +408,42 @@ func (h *ProxyHandler) transformInputItem(item map[string]interface{}) map[strin
 				}
 			}
 		}
-		return map[string]interface{}{
+		msg := map[string]interface{}{
 			"role":    role,
 			"content": content,
 		}
+
+		// Handle tool_calls in assistant messages
+		if role == "assistant" {
+			if toolCalls, ok := item["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
+				transformedToolCalls := make([]map[string]interface{}, 0, len(toolCalls))
+				for _, tc := range toolCalls {
+					if tcMap, ok := tc.(map[string]interface{}); ok {
+						tcallID, _ := tcMap["id"].(string)
+						tcType, _ := tcMap["type"].(string)
+						if tcType == "" {
+							tcType = "function"
+						}
+						var tName, tArgs string
+						if fn, ok := tcMap["function"].(map[string]interface{}); ok {
+							tName, _ = fn["name"].(string)
+							tArgs, _ = fn["arguments"].(string)
+						}
+						transformedToolCalls = append(transformedToolCalls, map[string]interface{}{
+							"id":   tcallID,
+							"type": tcType,
+							"function": map[string]interface{}{
+								"name":      tName,
+								"arguments": tArgs,
+							},
+						})
+					}
+				}
+				msg["tool_calls"] = transformedToolCalls
+			}
+		}
+
+		return msg
 	}
 
 	return nil
