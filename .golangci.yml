@@ -1,0 +1,37 @@
+linters:
+  enable:
+    - gofmt
+    - govet
+    - revive
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - misspell
+    - gocritic
+    - goimports
+    - stylecheck
+    - unconvert
+    - prealloc
+
+linters-settings:
+  govet:
+    enable-all: true
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+      - name: var-naming
+        severity: warning
+  staticcheck:
+    checks: ["all"]
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0

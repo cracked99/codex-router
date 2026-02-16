@@ -1,0 +1,41 @@
+# Codex API Router Configuration Example
+# Copy this file to ~/.codex-router/config.yaml and customize
+
+server:
+  host: "localhost"
+  port: 8080
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+
+zai:
+  base_url: "https://api.z.ai/api/paas/v4"
+  api_key: "${ZAI_API_KEY}"  # Set ZAI_API_KEY environment variable
+  timeout: 120s
+  max_retries: 3
+  retry_delay: 1s
+
+codex:
+  base_url: ""  # If running behind another proxy
+  api_key_header: "Authorization"
+
+translator:
+  mode: "wasm"  # wasm | sidecar
+  wasm_path: "./translator.wasm"
+  sidecar_command: "node ./internal/translator/dist/index.js"
+
+session:
+  enabled: true
+  ttl: 3600s
+  max_conversations: 1000
+
+logging:
+  level: "info"  # debug | info | warn | error
+  format: "json"  # json | text
+  file: ""  # Optional: log to file
+
+metrics:
+  enabled: true
+  path: "/metrics"
+  format: "prometheus"
