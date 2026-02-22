@@ -12,6 +12,7 @@ import (
 // Load loads configuration from file or environment variables
 func Load(configPath string) (*Config, error) {
 	cfg := Default()
+	defaultModelMapping := cfg.Providers.ModelMapping // Save defaults
 
 	// Try to load from file
 	if configPath != "" {
@@ -36,6 +37,11 @@ func Load(configPath string) (*Config, error) {
 				}
 			}
 		}
+	}
+
+	// Preserve default model_mapping if not set in config file
+	if cfg.Providers.ModelMapping == nil || len(cfg.Providers.ModelMapping) == 0 {
+		cfg.Providers.ModelMapping = defaultModelMapping
 	}
 
 	// Migrate legacy Zai config to providers if providers not set

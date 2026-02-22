@@ -412,18 +412,18 @@ func (h *ProxyHandler) reverseMapModel(backendModel string) string {
 		}
 	}
 
-	// Default fallback: return a known Claude model for common z.ai models
-	// This handles the case where model mapping isn't configured
+	// Default fallback: return Codex CLI model name for z.ai models
+	// This prevents "model metadata not found" warnings in Codex CLI
 	switch backendModel {
 	case "glm-5", "GLM-5":
-		return "claude-sonnet-4"
+		return "gpt-5.2-codex"
 	case "glm-4.7", "glm-4.7-flash", "GLM-4.7", "GLM-4.7-flash":
-		return "claude-sonnet-4"
+		return "gpt-5.2-codex"
 	case "glm-4.5-air", "GLM-4.5-Air":
-		return "claude-3-5-haiku"
+		return "gpt-5.1-codex-mini"
 	default:
-		// For unknown models, return claude-sonnet-4 to avoid Codex CLI warnings
-		return "claude-sonnet-4"
+		// For unknown models, return default Codex CLI model
+		return "gpt-5.2-codex"
 	}
 }
 

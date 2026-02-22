@@ -125,27 +125,29 @@ func DefaultProvidersConfig() ProvidersConfig {
 			RetryCount: 2,
 		},
 		// Default model mapping for z.ai Coding Plan
-		// Maps Claude model names to z.ai equivalents
+		// Maps Claude/Codex model names to z.ai equivalents
 		ModelMapping: map[string]string{
-			// Claude models -> z.ai Coding Plan equivalents (glm-5)
-			"claude-opus-4":      "glm-5",
+			// Codex CLI models -> glm-5
+			"gpt-5.2-codex":       "glm-5",
+			"gpt-5.1-codex-max":   "glm-5",
+			"gpt-5.2":             "glm-5",
+			"gpt-5.1-codex-mini":  "glm-5",
+			// Claude models -> glm-5
+			"claude-opus-4":       "glm-5",
 			"claude-opus-4-20250514": "glm-5",
-			"claude-sonnet-4":    "glm-5",
+			"claude-sonnet-4":     "glm-5",
 			"claude-sonnet-4-20250514": "glm-5",
-			"claude-3-5-sonnet":  "glm-5",
+			"claude-3-5-sonnet":   "glm-5",
 			"claude-3-5-sonnet-20241022": "glm-5",
-			"claude-3-5-haiku":   "glm-5",
+			"claude-3-5-haiku":    "glm-5",
 			"claude-3-5-haiku-20241022": "glm-5",
-			"claude-3-haiku":     "glm-5",
-			"claude-3-opus":      "glm-5",
-			"claude-3-sonnet":    "glm-5",
+			"claude-3-haiku":      "glm-5",
+			"claude-3-opus":       "glm-5",
+			"claude-3-sonnet":     "glm-5",
 			// Common aliases
 			"opus":  "glm-5",
 			"sonnet": "glm-5",
 			"haiku": "glm-5",
-			// Fast variants
-			"claude-3-5-sonnet-fast": "glm-5",
-			"claude-sonnet-fast":     "glm-5",
 		},
 	}
 }
