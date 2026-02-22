@@ -146,7 +146,7 @@ func Default() *Config {
 			},
 		},
 		Zai: ZaiConfig{
-			BaseURL:    "https://api.z.ai/api/paas/v4",
+			BaseURL:    "https://api.z.ai/api/coding/paas/v4", // Coding Plan endpoint
 			APIKey:     "",
 			Timeout:    120 * time.Second,
 			MaxRetries: 3,

@@ -401,6 +401,32 @@ func (h *ProxyHandler) mapModel(model string) string {
 	return model
 }
 
+// reverseMapModel maps a backend model name back to the original model name
+func (h *ProxyHandler) reverseMapModel(backendModel string) string {
+	// Check provider model mapping for reverse lookup
+	if h.cfg.Providers.ModelMapping != nil {
+		for original, mapped := range h.cfg.Providers.ModelMapping {
+			if mapped == backendModel {
+				return original
+			}
+		}
+	}
+
+	// Default fallback: return a known Claude model for common z.ai models
+	// This handles the case where model mapping isn't configured
+	switch backendModel {
+	case "glm-5", "GLM-5":
+		return "claude-sonnet-4"
+	case "glm-4.7", "glm-4.7-flash", "GLM-4.7", "GLM-4.7-flash":
+		return "claude-sonnet-4"
+	case "glm-4.5-air", "GLM-4.5-Air":
+		return "claude-3-5-haiku"
+	default:
+		// For unknown models, return claude-sonnet-4 to avoid Codex CLI warnings
+		return "claude-sonnet-4"
+	}
+}
+
 func (h *ProxyHandler) transformInputItem(item map[string]interface{}) map[string]interface{} {
 	role, _ := item["role"].(string)
 	itemType, _ := item["type"].(string)
@@ -623,9 +649,9 @@ func (h *ProxyHandler) transformResponse(resp map[string]interface{}) map[string
 		}
 	}
 
-	// Copy model
+	// Copy model (reverse map to original model name)
 	if model, ok := resp["model"].(string); ok {
-		responsesResp["model"] = model
+		responsesResp["model"] = h.reverseMapModel(model)
 	}
 
 	return responsesResp
@@ -823,7 +849,8 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 				if c, ok := chunk["created"].(float64); ok {
 					created = int64(c)
 				}
-				model, _ := chunk["model"].(string)
+				backendModel, _ := chunk["model"].(string)
+				model := h.reverseMapModel(backendModel)
 
 				// Send response.created
 				createdEvent := map[string]interface{}{

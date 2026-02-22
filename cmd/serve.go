@@ -157,7 +157,13 @@ func printBanner(cfg *config.Config) {
 	fmt.Println()
 	fmt.Printf("  Version:     %s\n", GetVersion())
 	fmt.Printf("  Server:      http://%s:%d\n", cfg.Server.Host, cfg.Server.Port)
-	fmt.Printf("  Backend:     %s\n", cfg.Zai.BaseURL)
+
+	// Use provider backend URL if available, fallback to legacy config
+	backendURL := cfg.Providers.Zai.BaseURL
+	if backendURL == "" {
+		backendURL = cfg.Zai.BaseURL
+	}
+	fmt.Printf("  Backend:     %s\n", backendURL)
 	fmt.Printf("  Translator:  %s\n", cfg.Translator.Mode)
 	fmt.Printf("  Log Level:   %s\n", cfg.Logging.Level)
 	
