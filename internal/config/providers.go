@@ -77,11 +77,11 @@ func DefaultProvidersConfig() ProvidersConfig {
 			Enabled:    true,
 			Type:       "zai",
 			Priority:   1,
-			BaseURL:    "https://api.z.ai/api/paas/v4",
+			BaseURL:    "https://api.z.ai/api/coding/paas/v4", // Coding Plan endpoint
 			Timeout:    120 * time.Second,
 			MaxRetries: 3,
 			RetryDelay: 1 * time.Second,
-			Models:     []string{"GLM-4.7", "GLM-4.7-flash", "GLM-4.5-Air"},
+			Models:     []string{"glm-5", "glm-4.7", "glm-4.7-flash", "glm-4.5-air"},
 			HealthCheck: HealthCheckConfig{
 				Enabled:  true,
 				Interval: 30 * time.Second,
@@ -127,25 +127,25 @@ func DefaultProvidersConfig() ProvidersConfig {
 		// Default model mapping for z.ai Coding Plan
 		// Maps Claude model names to z.ai equivalents
 		ModelMapping: map[string]string{
-			// Claude models -> z.ai Coding Plan equivalents
-			"claude-opus-4":      "GLM-4.7",
-			"claude-opus-4-20250514": "GLM-4.7",
-			"claude-sonnet-4":    "GLM-4.7",
-			"claude-sonnet-4-20250514": "GLM-4.7",
-			"claude-3-5-sonnet":  "GLM-4.7",
-			"claude-3-5-sonnet-20241022": "GLM-4.7",
-			"claude-3-5-haiku":   "GLM-4.5-Air",
-			"claude-3-5-haiku-20241022": "GLM-4.5-Air",
-			"claude-3-haiku":     "GLM-4.5-Air",
-			"claude-3-opus":      "GLM-4.7",
-			"claude-3-sonnet":    "GLM-4.7",
+			// Claude models -> z.ai Coding Plan equivalents (glm-5)
+			"claude-opus-4":      "glm-5",
+			"claude-opus-4-20250514": "glm-5",
+			"claude-sonnet-4":    "glm-5",
+			"claude-sonnet-4-20250514": "glm-5",
+			"claude-3-5-sonnet":  "glm-5",
+			"claude-3-5-sonnet-20241022": "glm-5",
+			"claude-3-5-haiku":   "glm-5",
+			"claude-3-5-haiku-20241022": "glm-5",
+			"claude-3-haiku":     "glm-5",
+			"claude-3-opus":      "glm-5",
+			"claude-3-sonnet":    "glm-5",
 			// Common aliases
-			"opus":  "GLM-4.7",
-			"sonnet": "GLM-4.7",
-			"haiku": "GLM-4.5-Air",
-			// Fast variants -> GLM-4.7-flash
-			"claude-3-5-sonnet-fast": "GLM-4.7-flash",
-			"claude-sonnet-fast":     "GLM-4.7-flash",
+			"opus":  "glm-5",
+			"sonnet": "glm-5",
+			"haiku": "glm-5",
+			// Fast variants
+			"claude-3-5-sonnet-fast": "glm-5",
+			"claude-sonnet-fast":     "glm-5",
 		},
 	}
 }
