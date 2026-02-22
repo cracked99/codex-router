@@ -1,30 +1,58 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"runtime"
 
 	"github.com/spf13/cobra"
-)
-
-var (
-	// Version is the application version
-	Version = "0.1.0"
-	// Commit is the git commit hash
-	Commit = "unknown"
-	// BuildTime is the build timestamp
-	BuildTime = "unknown"
 )
 
 // versionCmd represents the version command
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the version information",
-	Long:  `Print the version, commit hash, and build time of codex-api-router.`,
+	Short: "Print version information",
+	Long: `Display detailed version and build information.
+
+Shows:
+  • Version number
+  • Git commit
+  • Build date
+  • Go version
+  • Platform/OS
+
+Examples:
+  codex-router version
+  codex-router version --output json`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("codex-api-router version %s\n", Version)
-		fmt.Printf("Commit: %s\n", Commit)
-		fmt.Printf("Built at: %s\n", BuildTime)
+		info := VersionInfo{
+			Version:   Version,
+			Commit:    Commit,
+			BuildDate: Date,
+			GoVersion: runtime.Version(),
+			Platform:  fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		}
+
+		if globalOpts.Output == "json" {
+			data, _ := json.MarshalIndent(info, "", "  ")
+			fmt.Println(string(data))
+		} else {
+			fmt.Printf("codex-router %s\n", info.Version)
+			fmt.Printf("  Commit:     %s\n", info.Commit)
+			fmt.Printf("  Built:      %s\n", info.BuildDate)
+			fmt.Printf("  Go version: %s\n", info.GoVersion)
+			fmt.Printf("  Platform:   %s\n", info.Platform)
+		}
 	},
+}
+
+// VersionInfo holds version metadata
+type VersionInfo struct {
+	Version   string `json:"version"`
+	Commit    string `json:"commit"`
+	BuildDate string `json:"build_date"`
+	GoVersion string `json:"go_version"`
+	Platform  string `json:"platform"`
 }
 
 func init() {

@@ -23,11 +23,17 @@ type ProxyHandler struct {
 
 // NewProxyHandler creates a new proxy handler
 func NewProxyHandler(cfg *config.Config, logger *slog.Logger) *ProxyHandler {
+	// Use provider timeout if available, fallback to legacy config
+	timeout := cfg.Providers.Zai.Timeout
+	if timeout == 0 {
+		timeout = cfg.Zai.Timeout
+	}
+
 	return &ProxyHandler{
 		cfg:    cfg,
 		logger: logger,
 		client: &http.Client{
-			Timeout: cfg.Zai.Timeout,
+			Timeout: timeout,
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 10,
@@ -119,11 +125,20 @@ func (h *ProxyHandler) handleCreateResponse(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Use provider base URL if available, fallback to legacy config
+	baseURL := h.cfg.Providers.Zai.BaseURL
+	if baseURL == "" {
+		baseURL = h.cfg.Zai.BaseURL
+	}
+
 	// Debug log the transformed request
+
+	// Log request model for verification
+	h.logger.Info(">>> REQUEST TO ZAI", "model", chatReq["model"], "backend_url", baseURL)
 	h.logger.Info("sending to backend", "body", string(chatBody))
 
 	// Create backend request
-	backendURL := h.cfg.Zai.BaseURL + "/chat/completions"
+	backendURL := baseURL + "/chat/completions"
 	backendReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, backendURL, bytes.NewReader(chatBody))
 	if err != nil {
 		h.logger.Error("failed to create backend request", "error", err)
@@ -133,7 +148,13 @@ func (h *ProxyHandler) handleCreateResponse(w http.ResponseWriter, r *http.Reque
 
 	// Set headers
 	backendReq.Header.Set("Content-Type", "application/json")
-	backendReq.Header.Set("Authorization", "Bearer "+h.cfg.Zai.APIKey)
+
+	// Use provider API key if available, fallback to legacy Zai config
+	apiKey := h.cfg.Providers.Zai.APIKey
+	if apiKey == "" {
+		apiKey = h.cfg.Zai.APIKey
+	}
+	backendReq.Header.Set("Authorization", "Bearer "+apiKey)
 
 	// Check if streaming is requested
 	streaming := false
@@ -192,6 +213,9 @@ func (h *ProxyHandler) handleNonStreamingResponse(w http.ResponseWriter, r *http
 	}
 
 	// Transform to Responses API format
+
+	// Log z.ai response for verification
+	h.logger.Info("<<< RESPONSE FROM ZAI", "model", chatResp["model"], "status", resp.StatusCode)
 	responsesResp := h.transformResponse(chatResp)
 
 	// Send response
@@ -293,8 +317,13 @@ func (h *ProxyHandler) handleDeleteResponse(w http.ResponseWriter, r *http.Reque
 func (h *ProxyHandler) transformRequest(req map[string]interface{}) map[string]interface{} {
 	chatReq := make(map[string]interface{})
 
-	// Copy model
-	if model, ok := req["model"]; ok {
+	// Copy model with mapping
+	if model, ok := req["model"].(string); ok {
+		// Check for model mapping
+		mappedModel := h.mapModel(model)
+		chatReq["model"] = mappedModel
+		h.logger.Debug("model mapping", "original", model, "mapped", mappedModel)
+	} else if model, ok := req["model"]; ok {
 		chatReq["model"] = model
 	}
 
@@ -359,6 +388,19 @@ func (h *ProxyHandler) transformRequest(req map[string]interface{}) map[string]i
 	return chatReq
 }
 
+// mapModel maps a model name to its configured equivalent
+func (h *ProxyHandler) mapModel(model string) string {
+	// Check provider model mapping
+	if h.cfg.Providers.ModelMapping != nil {
+		if mapped, ok := h.cfg.Providers.ModelMapping[model]; ok {
+			return mapped
+		}
+	}
+
+	// No mapping found, return original
+	return model
+}
+
 func (h *ProxyHandler) transformInputItem(item map[string]interface{}) map[string]interface{} {
 	role, _ := item["role"].(string)
 	itemType, _ := item["type"].(string)
@@ -386,7 +428,7 @@ func (h *ProxyHandler) transformInputItem(item map[string]interface{}) map[strin
 			"role": "assistant",
 			"tool_calls": []map[string]interface{}{
 				{
-					"id": callID,
+					"id":   callID,
 					"type": "function",
 					"function": map[string]interface{}{
 						"name":      name,
@@ -454,8 +496,24 @@ func (h *ProxyHandler) transformTools(tools []interface{}) []map[string]interfac
 
 	for _, tool := range tools {
 		if toolMap, ok := tool.(map[string]interface{}); ok {
-			// Skip tools with null or empty names
-			name, _ := toolMap["name"].(string)
+			// Responses API format: tool has "type" and "function" fields
+			// Chat Completions format is the same, but we need to extract from "function"
+			var name, description string
+			var params interface{}
+
+			// Check if tool has a "function" field (Responses API format)
+			if fn, ok := toolMap["function"].(map[string]interface{}); ok {
+				name, _ = fn["name"].(string)
+				description, _ = fn["description"].(string)
+				params = fn["parameters"]
+			} else {
+				// Fallback: try direct fields (in case already in Chat Completions format)
+				name, _ = toolMap["name"].(string)
+				description, _ = toolMap["description"].(string)
+				params = toolMap["parameters"]
+			}
+
+			// Skip tools with empty names
 			if name == "" {
 				continue
 			}
@@ -463,10 +521,10 @@ func (h *ProxyHandler) transformTools(tools []interface{}) []map[string]interfac
 			functionDef := map[string]interface{}{
 				"name": name,
 			}
-			if desc, ok := toolMap["description"].(string); ok && desc != "" {
-				functionDef["description"] = desc
+			if description != "" {
+				functionDef["description"] = description
 			}
-			if params, ok := toolMap["parameters"]; ok && params != nil {
+			if params != nil {
 				functionDef["parameters"] = params
 			}
 
@@ -497,10 +555,10 @@ func (h *ProxyHandler) transformResponse(resp map[string]interface{}) map[string
 
 			if message, ok := choice["message"].(map[string]interface{}); ok {
 				msg := map[string]interface{}{
-					"type":   "message",
-					"id":     "msg_" + generateID(),
-					"status": "completed",
-					"role":   "assistant",
+					"type":    "message",
+					"id":      "msg_" + generateID(),
+					"status":  "completed",
+					"role":    "assistant",
 					"content": []map[string]interface{}{},
 				}
 
@@ -514,9 +572,36 @@ func (h *ProxyHandler) transformResponse(resp map[string]interface{}) map[string
 				}
 
 				if _, ok := message["tool_calls"].([]interface{}); ok {
-					// Handle tool calls if present (TODO: implement tool call transformation)
-				}
+					// Transform tool calls to Responses API format
+					if toolCalls, ok := message["tool_calls"].([]interface{}); ok && len(toolCalls) > 0 {
 
+						transformedToolCalls := []map[string]interface{}{}
+						for _, tc := range toolCalls {
+							if tcMap, ok := tc.(map[string]interface{}); ok {
+								tcID, _ := tcMap["id"].(string)
+								tcType, _ := tcMap["type"].(string)
+
+								var fnName, fnArgs string
+								if fn, ok := tcMap["function"].(map[string]interface{}); ok {
+									fnName, _ = fn["name"].(string)
+									if args, ok := fn["arguments"].(string); ok {
+										fnArgs = args
+									}
+								}
+
+								transformedToolCalls = append(transformedToolCalls, map[string]interface{}{
+									"id":   tcID,
+									"type": tcType,
+									"function": map[string]interface{}{
+										"name":      fnName,
+										"arguments": fnArgs,
+									},
+								})
+							}
+						}
+						msg["tool_calls"] = transformedToolCalls
+					}
+				}
 				output = append(output, msg)
 			}
 
@@ -624,10 +709,10 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 						"output_index":    0,
 						"sequence_number": sequenceNumber,
 						"item": map[string]interface{}{
-							"id":      itemID,
-							"type":    "message",
-							"role":    "assistant",
-							"status":  "completed",
+							"id":     itemID,
+							"type":   "message",
+							"role":   "assistant",
+							"status": "completed",
 							"content": []interface{}{
 								map[string]interface{}{
 									"type":        "output_text",
@@ -647,7 +732,7 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 				// Finalize tool calls
 				for idx, tcInfo := range toolCalls {
 					toolCallItemID := toolCallItems[idx]
-					outputIdx := 0
+					outputIdx := idx
 					if sentOutputItemAdded {
 						outputIdx = 1 + idx
 					}
@@ -693,9 +778,9 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 					"type":            "response.completed",
 					"sequence_number": sequenceNumber,
 					"response": map[string]interface{}{
-						"id":         responseID,
-						"object":     "response",
-						"status":     "completed",
+						"id":     responseID,
+						"object": "response",
+						"status": "completed",
 						"output": []map[string]interface{}{
 							{
 								"id":      itemID,
@@ -785,8 +870,10 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 				for _, choice := range choices {
 					if choiceMap, ok := choice.(map[string]interface{}); ok {
 						if delta, ok := choiceMap["delta"].(map[string]interface{}); ok {
-							// Handle content
-							if content, ok := delta["content"].(string); ok && content != "" {
+							// Handle content - only use "content", skip "reasoning_content" (internal thinking)
+							// z.ai sends reasoning_content first, then content for the actual response
+							content, hasContent := delta["content"].(string)
+							if hasContent && content != "" {
 								// Send output_item.added first if not sent
 								if !sentOutputItemAdded {
 									outputItemAdded := map[string]interface{}{
@@ -871,21 +958,24 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 											}
 											toolCallItems[index] = toolCallItemID
 
-											// Send output_item.added for function_call
-											outputIdx := len(toolCalls) - 1
+											// Calculate output_index for this tool call
+											// If we have a message item, tools start at index 1
+											// Otherwise, tools start at index 0
+											outputIdx := index
 											if sentOutputItemAdded {
-												outputIdx = 1 // After the message item
+												outputIdx = 1 + index
 											}
+
 											toolItemAdded := map[string]interface{}{
 												"type":            "response.output_item.added",
 												"output_index":    outputIdx,
 												"sequence_number": sequenceNumber,
 												"item": map[string]interface{}{
-													"id":       toolCallItemID,
-													"type":     "function_call",
-													"status":   "in_progress",
-													"call_id":  toolCallID,
-													"name":     "",
+													"id":        toolCallItemID,
+													"type":      "function_call",
+													"status":    "in_progress",
+													"call_id":   toolCallID,
+													"name":      "",
 													"arguments": "",
 												},
 											}
@@ -898,9 +988,11 @@ func (h *ProxyHandler) transformStream(body io.ReadCloser, w io.Writer, flusher 
 
 										tcInfo := toolCalls[index]
 										toolCallItemID := toolCallItems[index]
-										outputIdx := 0
+
+										// Calculate output_index consistently
+										outputIdx := index
 										if sentOutputItemAdded {
-											outputIdx = 1
+											outputIdx = 1 + index
 										}
 
 										// Handle tool call id
